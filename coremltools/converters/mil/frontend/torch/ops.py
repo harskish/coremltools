@@ -58,6 +58,8 @@ def convert_nodes(context, graph):
                 assign node outputs.
             graph: An InternalTorchIRGraph or InternalTorchIRBlock object.
     """
+    num_ops_added = 0
+
     for node in _tqdm(graph.nodes, desc="Converting Frontend ==> MIL Ops", unit=" ops"):
         _add_op = _TORCH_OPS_REGISTRY.get(node.kind, None)
         _logging.info("Converting op {} : {}".format(node.name, node.kind))
@@ -67,9 +69,12 @@ def convert_nodes(context, graph):
             )
         else:
             _add_op(context, node)
+            num_ops_added += 1
 
         # We've generated all the outputs the graph needs, terminate conversion.
         if _all_outputs_present(context, graph):
+            dropped = len(graph.nodes) - num_ops_added
+            _logging.info(f"Outputs generated, dropping {dropped} ops.")
             break
 
 
@@ -425,10 +430,10 @@ def _convolution(context, node):
     # we require a (2 * n)-tuple, where n is the number of spatial dimensions, start and end for each spatial dimension
     pad = inputs[4].val
 
-    if weight.val.ndim in (3, 4):
+    if len(weight.shape) in (3, 4):
         # 1D and 2D: Need to explicitly state L-R, T-B pad
         pad = _np.repeat(pad, 2)
-    elif weight.val.ndim == 5:
+    elif len(weight.shape) == 5:
         # 3D: Need to explicitly state F-Bk, L-R, T-B pad
         if type(pad) == int:
             pad = _np.repeat(pad, 6)
@@ -3473,6 +3478,7 @@ def std(context, node):
 def copy_(context, node):
     inputs = _get_inputs(context, node, expected=[2, 3])
     context.add(mb.identity(x=inputs[0], name=node.name))
+    print('\nERROR: generating broken copy OP\n')
 
 @register_torch_op
 def dtype(context, node):

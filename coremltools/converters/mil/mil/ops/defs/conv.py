@@ -319,7 +319,7 @@ class conv_transpose(Operation):
 
     input_spec = InputSpec(
         x=FloatTensorInputType(),  # [n, C_in, spatial_dims]
-        weight=FloatTensorInputType(const=True),  # [C_out, C_in, spatial_dims]
+        weight=FloatTensorInputType(),  # [C_out, C_in, spatial_dims]
         bias=FloatTensorInputType(const=True, optional=True),
         pad=IntTensorInputType(const=True, optional=True),
         output_shape=IntTensorInputType(const=True, optional=True),

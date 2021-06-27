@@ -2593,20 +2593,49 @@ def conv_transpose(const_context, builder, op):
     input_names = [x_name]
 
     # Kernel shape: [C_in, C_out, D, H, W]
-    weight = op.weight.val
-    kernel_channels = weight.shape[0]
-    output_channels = weight.shape[1] * op.groups.val
+    weight = None
+    kernel_channels = op.weight.shape[0]
+    output_channels = op.weight.shape[1] * op.groups.val
+    
+    if op.weight.val is not None:
+        # Compile-time constant weights
+        weight = op.weight.val
 
-    if is_conv_transpose_1d:
-        weight = _np.expand_dims(weight, -2)
+        if is_conv_transpose_1d:
+            weight = _np.expand_dims(weight, -2)
 
-    # pyMIL Deconvolution format: [C_in, C_out / groups, spatial_dims]
-    # NN DeConvolution3D expects weights to have shape (C_out / groups, C_in, spatial_dims)
-    # NN DeConvolution2D/1D expects (spatial_dims, C_in, C_out/groups)
-    if is_conv_transpose_3d:
-        weight = _np.transpose(weight, [1, 0, 2, 3, 4])
+        # pyMIL Deconvolution format: [C_in, C_out / groups, spatial_dims]
+        # NN DeConvolution3D expects weights to have shape (C_out / groups, C_in, spatial_dims)
+        # NN DeConvolution2D/1D expects (spatial_dims, C_in, C_out/groups)
+        if is_conv_transpose_3d:
+            weight = _np.transpose(weight, [1, 0, 2, 3, 4])
+        else:
+            weight = _np.transpose(weight, [2, 3, 0, 1])
     else:
-        weight = _np.transpose(weight, [2, 3, 0, 1])
+        # Dynamic weights from computation graph
+        weights_name = op.weight.name
+        
+        if is_conv_transpose_1d:
+            weights_name += "_expand_dim"
+            builder.add_expand_dims(
+                name=weights_name,
+                input_name=op.weight.name,
+                output_name=weights_name,
+                axes=[-2],
+            )
+        #input_names.append(weights_name)
+
+        if is_conv_transpose_3d:
+            raise ValueError("3D Transposed Convolution doesn't support dynamic weights. (PROBABLY; NEED TO CHECK)")
+
+        # Add permutation to graph
+        perm = [1, 0, 2, 3, 4] if is_conv_transpose_3d else [2, 3, 0, 1]
+        input_names.append(weights_name + "_transposed")
+        builder.add_transpose(name=op.name + "_transpose_w",
+            axes=perm,
+            input_name=weights_name,
+            output_name=input_names[-1]
+        )
 
     # Adjust for Deconv1D case
     # CoreML maps Deconv1D into Deconv2D
@@ -2683,8 +2712,8 @@ def conv_transpose(const_context, builder, op):
             name=out_name,
             kernel_channels=kernel_channels,
             output_channels=output_channels,
-            height=weight.shape[0],
-            width=weight.shape[1],
+            height=op.weight.shape[2], # w_tr.shape[0] = w_orig.shape[2] (2, 3, 0, 1)
+            width=op.weight.shape[3], # w_tr.shape[1] = w_orig.shape[3] (2, 3, 0, 1)
             stride_height=strides[0],
             stride_width=strides[1],
             border_mode=padding_mode,

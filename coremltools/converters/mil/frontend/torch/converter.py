@@ -211,6 +211,8 @@ class TorchConverter:
             ssa_func_inputs[name] = placeholder
         prog.set_main_input_types(tuple(self.inputs))
 
+        _logging.debug("Input torch graph:\n{}".format(self.graph))
+
         # Initialize the SSA for conversion
         with Function(ssa_func_inputs) as ssa_func:
 
